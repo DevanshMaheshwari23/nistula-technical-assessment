@@ -19,91 +19,96 @@ Built for the **Nistula Summer Technology Internship 2026** technical assessment
 ## System Architecture
 
 Every inbound message flows through a deterministic 7-stage pipeline before a single token is sent to Claude:
+
+```
 Inbound POST /webhook/message
 │
 ▼
 ┌───────────────────────┐
-│ Input Validation │ Pydantic schema — rejects malformed payloads (422)
-│ (schemas.py) │ Validates: source channel, guest name, timestamp, property_id
+│   Input Validation    │  Pydantic schema — rejects malformed payloads (422)
+│     (schemas.py)      │  Validates: source channel, guest name, timestamp, property_id
 └──────────┬────────────┘
-│
-▼
+           │
+           ▼
 ┌───────────────────────┐
-│ Normaliser │ Channel-specific markup stripping (WhatsApp bold,
-│ (normaliser.py) │ Airbnb HTML, Booking.com prefixes, Instagram URLs)
-│ │ → Assigns UUID, title-cases guest name,
-│ │ attaches UTC timestamp, strips excess whitespace
+│      Normaliser       │  Channel-specific markup stripping (WhatsApp bold,
+│   (normaliser.py)     │  Airbnb HTML, Booking.com prefixes, Instagram URLs)
+│                       │  → Assigns UUID, title-cases guest name,
+│                       │  attaches UTC timestamp, strips excess whitespace
 └──────────┬────────────┘
-│
-▼
+           │
+           ▼
 ┌───────────────────────┐
-│ Classifier │ Weighted regex scoring across 6 query types
-│ (classifier.py) │ 3-phase: complaint gate → score all → tiebreaker
-│ │ → Outputs: QueryType enum value
+│      Classifier       │  Weighted regex scoring across 6 query types
+│   (classifier.py)     │  3-phase: complaint gate → score all → tiebreaker
+│                       │  → Outputs: QueryType enum value
 └──────────┬────────────┘
-│
-▼
+           │
+           ▼
 ┌───────────────────────┐
-│ Confidence Engine │ 4-signal weighted formula (no Claude dependency)
-│ (confidence.py) │ → Outputs: float 0.0–1.0
+│  Confidence Engine    │  4-signal weighted formula (no Claude dependency)
+│   (confidence.py)     │  → Outputs: float 0.0–1.0
 └──────────┬────────────┘
-│
-▼
+           │
+           ▼
 ┌───────────────────────┐
-│ Prompt Builder │ Selects base system prompt + query-type overlay
-│ (prompt_builder.py) │ Injects full property context block with
-│ │ pre-calculated rate examples
+│    Prompt Builder     │  Selects base system prompt + query-type overlay
+│ (prompt_builder.py)   │  Injects full property context block with
+│                       │  pre-calculated rate examples
 └──────────┬────────────┘
-│
-▼
+           │
+           ▼
 ┌───────────────────────┐
-│ AI Service │ Async Claude Sonnet call via Anthropic SDK
-│ (ai_service.py) │ Maps SDK exceptions → typed HTTP errors
-│ │ Logs latency + token usage per request
+│      AI Service       │  Async Claude Sonnet call via Anthropic SDK
+│   (ai_service.py)     │  Maps SDK exceptions → typed HTTP errors
+│                       │  Logs latency + token usage per request
 └──────────┬────────────┘
-│
-▼
+           │
+           ▼
 ┌───────────────────────┐
-│ Action Router │ Score ≥ 0.85 → auto_send
-│ (webhook.py) │ Score 0.60–0.849 → agent_review
-│ │ Score < 0.60 OR complaint → escalate
+│    Action Router      │  Score ≥ 0.85  → auto_send
+│    (webhook.py)       │  Score 0.60–0.849 → agent_review
+│                       │  Score < 0.60 OR complaint → escalate
 └───────────────────────┘
+```
 
 ---
 
 ## Project Structure
+
+```
 nistula-technical-assessment/
 ├── src/
-│ ├── core/
-│ │ ├── config.py # pydantic-settings — all config from .env
-│ │ ├── exceptions.py # Typed AI error hierarchy (Auth, RateLimit, Timeout...)
-│ │ ├── logging.py # Structured JSON logging with request context
-│ │ └── property_registry.py # In-memory property store + rate_breakdown() calculator
-│ ├── models/
-│ │ └── schemas.py # All Pydantic v2 models: request, unified, response, enums
-│ ├── routes/
-│ │ └── webhook.py # POST /webhook/message + GET /health handlers
-│ └── services/
-│ ├── ai_service.py # Anthropic AsyncAnthropic client wrapper
-│ ├── classifier.py # Weighted regex query classifier (6 types)
-│ ├── confidence.py # 4-signal confidence scoring engine
-│ ├── normaliser.py # Channel-specific message normalisation
-│ ├── prompt_builder.py # System prompt + type overlay + context block builder
-│ └── property_context.py # Property data adapter layer
+│   ├── core/
+│   │   ├── config.py               # pydantic-settings — all config from .env
+│   │   ├── exceptions.py           # Typed AI error hierarchy (Auth, RateLimit, Timeout...)
+│   │   ├── logging.py              # Structured JSON logging with request context
+│   │   └── property_registry.py   # In-memory property store + rate_breakdown() calculator
+│   ├── models/
+│   │   └── schemas.py              # All Pydantic v2 models: request, unified, response, enums
+│   ├── routes/
+│   │   └── webhook.py              # POST /webhook/message + GET /health handlers
+│   └── services/
+│       ├── ai_service.py           # Anthropic AsyncAnthropic client wrapper
+│       ├── classifier.py           # Weighted regex query classifier (6 types)
+│       ├── confidence.py           # 4-signal confidence scoring engine
+│       ├── normaliser.py           # Channel-specific message normalisation
+│       ├── prompt_builder.py       # System prompt + type overlay + context block builder
+│       └── property_context.py    # Property data adapter layer
 ├── tests/
-│ ├── conftest.py # Path setup + fake API key for test isolation
-│ ├── test_edge_cases.py # 58 unit + integration edge case tests
-│ ├── test_advanced_edge_cases.py # 74 advanced robustness tests
-│ └── test_classifier.py # Classifier-specific unit tests
-├── schema.sql # Part 2 — Full PostgreSQL schema with comments
-├── thinking.md # Part 3 — 3am scenario written answers
-├── design_decisions.md # Architecture Decision Records (ADRs)
-├── test_production.sh # Live end-to-end production smoke test suite
+│   ├── conftest.py                 # Path setup + fake API key for test isolation
+│   ├── test_edge_cases.py          # 58 unit + integration edge case tests
+│   ├── test_advanced_edge_cases.py # 74 advanced robustness tests
+│   └── test_classifier.py         # Classifier-specific unit tests
+├── schema.sql                      # Part 2 — Full PostgreSQL schema with comments
+├── thinking.md                     # Part 3 — 3am scenario written answers
+├── design_decisions.md             # Architecture Decision Records (ADRs)
+├── test_production.sh              # Live end-to-end production smoke test suite
 ├── requirements.txt
 ├── pytest.ini
 ├── conftest.py
 └── .env.example
-
+```
 
 ---
 
@@ -136,18 +141,18 @@ cp .env.example .env
 Full `.env` reference:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...          # Required — your Anthropic key
-CLAUDE_MODEL=claude-sonnet-4-20250514 # Model to use
-CLAUDE_MAX_TOKENS=1024                # Max reply length
-CLAUDE_TIMEOUT_S=30                   # Request timeout in seconds
-CLAUDE_MAX_RETRIES=2                  # SDK-level retry count
+ANTHROPIC_API_KEY=sk-ant-...           # Required — your Anthropic key
+CLAUDE_MODEL=claude-sonnet-4-20250514  # Model to use
+CLAUDE_MAX_TOKENS=1024                 # Max reply length
+CLAUDE_TIMEOUT_S=30                    # Request timeout in seconds
+CLAUDE_MAX_RETRIES=2                   # SDK-level retry count
 
-CONFIDENCE_AUTO_SEND_THRESHOLD=0.85   # Score >= this → auto_send
-CONFIDENCE_ESCALATE_THRESHOLD=0.60    # Score < this → escalate
+CONFIDENCE_AUTO_SEND_THRESHOLD=0.85    # Score >= this → auto_send
+CONFIDENCE_ESCALATE_THRESHOLD=0.60     # Score < this → escalate
 
-APP_ENV=development                   # development | production | test
-LOG_LEVEL=INFO                        # DEBUG | INFO | WARNING | ERROR
-WEBHOOK_SECRET=your-secret-here       # Optional — for webhook signature validation
+APP_ENV=development                    # development | production | test
+LOG_LEVEL=INFO                         # DEBUG | INFO | WARNING | ERROR
+WEBHOOK_SECRET=your-secret-here        # Optional — for webhook signature validation
 ```
 
 ### Run the Server
@@ -240,8 +245,6 @@ Every inbound message is normalised into a **Unified Message Schema** before any
 
 ### Channel-Specific Cleaning
 
-Each source channel sends messages with different formatting artifacts. The normaliser strips these before classification:
-
 | Channel | What Gets Stripped | Example |
 |---|---|---|
 | `whatsapp` | Bold/italic/strikethrough markdown (`*text*`, `_text_`, `~text~`), code blocks | `*hello*` → `hello` |
@@ -299,10 +302,13 @@ Priority ladder: `special_request` > `post_sales_checkin`; `pre_sales_availabili
 The confidence score is a **weighted sum of 4 independent signals**, computed entirely before the Claude API call — zero dependency on AI response quality.
 
 ### Formula
-confidence = (query_type_signal × 0.35)
-+ (context_coverage × 0.30)
-+ (message_clarity × 0.20)
-+ (channel_reliability × 0.15)
+
+```
+confidence = (query_type_signal   × 0.35)
+           + (context_coverage    × 0.30)
+           + (message_clarity     × 0.20)
+           + (channel_reliability × 0.15)
+```
 
 ### Signal 1 — Query Type Answerability (35%)
 
@@ -366,23 +372,24 @@ Final value clamped to [0.0, 1.0].
 
 ### System Prompt Structure
 
-Each request uses a **base system prompt** + a **query-type-specific overlay**:
+```
 BASE SYSTEM PROMPT
 → Role: Nistula guest communication assistant
 → Tone: Warm, professional, specific — never generic
 → Rules: Only use facts from context, never invent numbers, never promise refunds
 
 QUERY TYPE OVERLAY (appended per request type)
-→ pre_sales_availability: Focus on dates, availability, offer to hold
-→ pre_sales_pricing: Show rate breakdown, all-inclusive, no hidden fees
-→ post_sales_checkin: Give WiFi password, check-in time, caretaker contact
-→ special_request: Acknowledge warmly, explain process, set expectations
-→ complaint: Empathise, commit to action, no refund promises
-→ general_enquiry: Answer directly from property facts only
+→ pre_sales_availability : Focus on dates, availability, offer to hold
+→ pre_sales_pricing      : Show rate breakdown, all-inclusive, no hidden fees
+→ post_sales_checkin     : Give WiFi password, check-in time, caretaker contact
+→ special_request        : Acknowledge warmly, explain process, set expectations
+→ complaint              : Empathise, commit to action, no refund promises
+→ general_enquiry        : Answer directly from property facts only
+```
 
 ### Property Context Block
 
-Pre-calculated and injected into every user prompt to prevent Claude hallucinating pricing:
+```
 Property: Villa B1, Assagao, North Goa
 Bedrooms: 3 | Max guests: 6 | Private pool: Yes
 Check-in: 2pm | Check-out: 11am
@@ -392,13 +399,13 @@ WiFi password: Nistula@2024
 Caretaker: Available 8am–10pm
 Chef on call: Yes — minimum 4 hours advance notice required
 Cancellation: Free up to 7 days before check-in
-Availability: Available April 20–24, 2026
 
 RATE EXAMPLES (pre-calculated):
-2 guests, 1 night : ₹18,000
-5 guests, 3 nights : ₹60,000 (₹18,000 + ₹2,000 × 3 nights)
+2 guests, 1 night  : ₹18,000
+5 guests, 3 nights : ₹60,000  (₹18,000 + ₹2,000 × 3 nights)
 
 RULE: These are final all-inclusive totals. Do NOT add taxes, GST, or unlisted fees.
+```
 
 ---
 
@@ -407,12 +414,15 @@ RULE: These are final all-inclusive totals. Do NOT add taxes, GST, or unlisted f
 See [`schema.sql`](./schema.sql) for full PostgreSQL `CREATE TABLE` statements with inline comments.
 
 ### Schema Overview
-guests ← One record per guest, unified across all channels
-└── reservations ← One record per booking, linked to a property
-└── conversations ← One thread per guest + reservation
-└── messages ← Every inbound/outbound message
-└── ai_drafts ← AI response, confidence score, query type,
-action taken, agent edit flag, latency
+
+```
+guests
+└── reservations          ← One record per booking, linked to a property
+    └── conversations     ← One thread per guest + reservation
+        └── messages      ← Every inbound/outbound message
+            └── ai_drafts ← AI response, confidence score, query type,
+                             action taken, agent edit flag, latency
+```
 
 ### Key Design Decisions
 
@@ -420,17 +430,17 @@ action taken, agent edit flag, latency
 
 **`ai_drafts` is a separate table:** Stores confidence breakdown, model used, latency, token counts, whether the agent edited before sending, and the final sent text — cleanly separated from the inbound message record.
 
-**`conversations` scoped to reservation:** A guest's messages about a specific booking thread together regardless of channel — Nistula's context is always property-stay-centric.
+**`conversations` scoped to reservation:** A guest's messages about a specific booking thread together regardless of channel — context is always property-stay-centric.
 
 ---
 
 ## Part 3 — Thinking Question Summary
 
-See [`thinking.md`](./thinking.md) for the full 400-word answers to all 3 questions.
+See [`thinking.md`](./thinking.md) for the full written answers to all 3 questions.
 
 **3am scenario — "No hot water, guests arriving for breakfast in 4 hours":**
 
-- **Immediate reply (Q A):** Empathise specifically, commit to caretaker dispatch *right now*, promise manager callback within 30 minutes, address the refund question directly — never deflect it at 3am.
+- **Immediate reply (Q A):** Empathise specifically, commit to caretaker dispatch *right now*, promise manager callback within 30 minutes. The phrase "discuss tonight's stay" opens the refund conversation without making a 3am financial promise.
 - **System response (Q B):** Flag → escalate → alert caretaker + property manager via SMS/WhatsApp (not email). Start 30-min SLA timer. No caretaker confirm in 10 min → secondary contact. No manager confirm in 20 min → ops on-call. At 30 min no response → auto follow-up to guest + emergency escalation to founder.
 - **Pattern learning (Q C):** Third complaint in 60 days → SQL pattern detector auto-generates maintenance ticket, blocks `auto_send` for Villa B1 until resolved, adds "test hot water" to pre-stay caretaker checklist, sends post-resolution follow-up to guest next morning.
 
@@ -521,4 +531,3 @@ See [`design_decisions.md`](./design_decisions.md) for the full ADR log.
 | Classifier approach | Weighted regex, not ML | 6-class problem with well-defined vocabulary — faster, fully debuggable, needs no training data |
 | Prompt structure | Base + type overlay | Single base enforces tone/safety globally; per-type overlays customise without duplication |
 | Rate examples in prompt | Pre-calculated in Python | Prevents Claude from re-deriving pricing and introducing rounding errors or hallucinated fees |
-
