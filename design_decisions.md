@@ -52,3 +52,17 @@ crosses a threshold (default: 3), a maintenance alert fires. This turns complain
 data into actionable property maintenance intelligence — the system learns that
 Villa B1's hot water geysers need inspection every 6 weeks, without a human having
 to notice the pattern manually.
+
+-- ─── FUTURE EXTENSIONS ────────────────────────────────────────────────────────
+-- The following tables are planned for v2 but intentionally excluded from v1
+-- to keep the schema reviewable and focused on core requirements:
+--
+-- pre_stay_checklists       — caretaker checklists auto-generated 24h before check-in,
+--                             seeded from property_issue_patterns (Part 3, Question C)
+--
+-- v_complaint_frequency     — founder dashboard view: complaint count per property
+--                             over rolling 60-day window (Part 3, Question C)
+--
+-- escalation_severity ENUM  — severity levels (low/medium/high/critical) for
+--                             the 30-min watchdog SLA timer (Part 3, Question B)
+-- ─────────────────────────────────────────────────────────────────────────────
