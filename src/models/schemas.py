@@ -1,12 +1,8 @@
-"""
-All Pydantic v2 schemas — single source of truth for data contracts.
-Validate at the boundary, trust internally.
-"""
 from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -28,67 +24,80 @@ class QueryType(str, Enum):
 
 
 class ActionType(str, Enum):
-    AUTO_SEND    = "auto_send"     # confidence >= 0.85
-    AGENT_REVIEW = "agent_review"  # 0.60 <= confidence < 0.85
-    ESCALATE     = "escalate"      # < 0.60 or complaint
+    AUTO_SEND    = "auto_send"
+    AGENT_REVIEW = "agent_review"
+    ESCALATE     = "escalate"
 
 
 class InboundMessagePayload(BaseModel):
     source:      SourceChannel
-    guest_name:  str           = Field(..., min_length=1, max_length=200)
-    message:     str           = Field(..., min_length=1, max_length=5000)
+    guest_name:  str  = Field(..., min_length=1, max_length=200)
+    message:     str  = Field(..., min_length=1, max_length=5000)
     timestamp:   datetime
-    booking_ref: Optional[str] = Field(None, max_length=50)
-    property_id: Optional[str] = Field(None, max_length=50)
+    booking_ref: Optional[str] = Field(default=None, max_length=50)
+    property_id: str  = Field(..., min_length=1, max_length=50)
 
-    @field_validator("guest_name", "message", mode="before")
+    @field_validator("message")
     @classmethod
-    def strip_and_reject_blank(cls, v: str) -> str:
-        if isinstance(v, str):
-            v = v.strip()
-        if not v:
-            raise ValueError("Field cannot be blank or whitespace-only")
+    def not_whitespace(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("message must contain non-whitespace text")
         return v
 
-    model_config = {"str_strip_whitespace": True}
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "source": "whatsapp",
+                "guest_name": "Rahul Sharma",
+                "message": "Is the villa available from April 20 to 24? What is the rate for 2 adults?",
+                "timestamp": "2026-05-05T10:30:00Z",
+                "booking_ref": "NIS-2024-0891",
+                "property_id": "villa-b1",
+            }
+        }
+    }
 
 
 class UnifiedMessage(BaseModel):
-    message_id:   str           = Field(default_factory=lambda: str(uuid.uuid4()))
+    message_id:   uuid.UUID
     source:       SourceChannel
     guest_name:   str
     message_text: str
     timestamp:    datetime
-    booking_ref:  Optional[str] = None
-    property_id:  Optional[str] = None
+    booking_ref:  Optional[str]
+    property_id:  str
     query_type:   QueryType
+    raw_payload:  dict[str, Any]
 
 
 class ConfidenceBreakdown(BaseModel):
-    query_type_signal:           float = Field(..., ge=0.0, le=1.0)
-    context_coverage_signal:     float = Field(..., ge=0.0, le=1.0)
-    message_clarity_signal:      float = Field(..., ge=0.0, le=1.0)
-    channel_reliability_signal:  float = Field(..., ge=0.0, le=1.0)
-    complaint_cap_applied:       bool  = False
-    final_score:                 float = Field(..., ge=0.0, le=1.0)
+    query_type_signal:    float = Field(..., ge=0.0, le=1.0)
+    context_coverage:     float = Field(..., ge=0.0, le=1.0)
+    message_clarity:      float = Field(..., ge=0.0, le=1.0)
+    channel_reliability:  float = Field(..., ge=0.0, le=1.0)
+    complaint_cap_applied: bool = False
+    final_score:          float = Field(..., ge=0.0, le=1.0)
 
 
 class AIResponse(BaseModel):
     drafted_reply:        str
-    confidence_score:     float              = Field(..., ge=0.0, le=1.0)
+    confidence_score:     float = Field(..., ge=0.0, le=1.0)
     confidence_breakdown: ConfidenceBreakdown
     model_used:           str
+    input_tokens:         int
+    output_tokens:        int
+    latency_ms:           int
 
 
 class WebhookResponse(BaseModel):
-    message_id:       str
+    message_id:       uuid.UUID
     query_type:       QueryType
     drafted_reply:    str
     confidence_score: float = Field(..., ge=0.0, le=1.0)
     action:           ActionType
+    metadata:         dict[str, Any] = Field(default_factory=dict)
 
 
-class ErrorDetail(BaseModel):
-    error:      str
-    detail:     Optional[str] = None
-    message_id: Optional[str] = None
+class ErrorResponse(BaseModel):
+    error:  str
+    detail: str

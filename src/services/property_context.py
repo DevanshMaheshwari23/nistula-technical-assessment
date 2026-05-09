@@ -1,87 +1,109 @@
 """
-Property Context Registry.
-In production: replace get_property_context() with a DB call.
-No other code changes needed — interface stays the same.
+src/services/property_context.py
+
+Thin adapter — all property data lives in src.core.property_registry.
+This module provides the prompt-formatting layer on top of it.
+Import get_property_context() for raw data, format_for_prompt() for Claude.
 """
 from __future__ import annotations
 from typing import Optional
 
-PROPERTIES: dict[str, dict] = {
-    "villa-b1": {
-        "id":                    "villa-b1",
-        "name":                  "Villa B1",
-        "location":              "Assagao, North Goa",
-        "bedrooms":              3,
-        "max_guests":            6,
-        "private_pool":          True,
-        "check_in_time":         "2:00 PM",
-        "check_out_time":        "11:00 AM",
-        "base_rate_inr":         18000,
-        "base_rate_guest_limit": 4,
-        "extra_guest_rate_inr":  2000,
-        "wifi_password":         "Nistula@2024",
-        "caretaker_hours":       "8:00 AM to 10:00 PM",
-        "chef_on_call":          True,
-        "cancellation_policy":   (
-            "Free cancellation up to 7 days before check-in. "
-            "50% charge within 7 days. No refund within 48 hours."
-        ),
-        "pets_allowed":          False,
-        "smoking_policy":        "Outdoor areas only",
-        "parking":               "Yes — 2 cars",
-        "extra_bed":             "Available on request — INR 1,500/night",
-        "infant_cot":            "Available at no charge — pre-booking required",
-        "availability_notes":    "Available April 20–24, 2026",
-    }
-}
-
-DEFAULT_PROPERTY_ID = "villa-b1"
+from src.core.property_registry import PropertyContext, get_property, PROPERTIES_DB
+from src.core.exceptions import PropertyNotFoundError
 
 
-def get_property_context(property_id: Optional[str]) -> dict:
-    pid = (property_id or DEFAULT_PROPERTY_ID).lower().strip()
-    return PROPERTIES.get(pid, PROPERTIES[DEFAULT_PROPERTY_ID])
+# Re-export for convenience so callers don't need two imports
+__all__ = ["get_property_context", "format_for_prompt", "PropertyNotFoundError"]
 
 
-def format_for_prompt(property_id: Optional[str]) -> str:
+def get_property_context(property_id: Optional[str]) -> PropertyContext:
     """
-    Render property data as a structured block for Claude.
+    Returns the PropertyContext for the given property_id.
+    Raises PropertyNotFoundError if the ID is unknown.
+    Falls back to 'villa-b1' only if property_id is None/empty.
+    """
+    pid = (property_id or "villa-b1").lower().strip()
+    return get_property(pid)
+
+
+def format_for_prompt(prop: PropertyContext) -> str:
+    """
+    Render a PropertyContext as a structured block for Claude.
     Scannable layout so Claude locates exact values quickly.
+    All values come from the single PropertyContext source — no duplication.
     """
-    p = get_property_context(property_id)
+    house_rules_text    = "\n".join(f"  • {r}" for r in prop.house_rules)
+    amenities_text      = ", ".join(prop.amenities)
+    attractions_text    = "\n".join(f"  • {a}" for a in prop.nearby_attractions)
+
+    check_in_display    = _format_time(prop.check_in_time)
+    check_out_display   = _format_time(prop.check_out_time)
+
     return f"""
-PROPERTY CONTEXT
-================
-Name          : {p['name']}, {p['location']}
-Bedrooms      : {p['bedrooms']}  |  Max Guests : {p['max_guests']}
-Private Pool  : {'Yes' if p['private_pool'] else 'No'}
+PROPERTY CONTEXT — USE ONLY THE FACTS LISTED HERE. DO NOT INVENT ANYTHING NOT PRESENT.
+========================================================================================
+Name          : {prop.name}
+Location      : {prop.location}, {prop.region}
+Bedrooms      : {prop.bedrooms}  |  Max Guests : {prop.max_guests}
+Private Pool  : {'Yes' if prop.has_private_pool else 'No'}
 
 CHECK-IN / CHECK-OUT
-Check-in      : {p['check_in_time']}
-Check-out     : {p['check_out_time']}
+Check-in      : {check_in_display}
+Check-out     : {check_out_display}
 
 PRICING (INR)
-Base rate     : INR {p['base_rate_inr']:,} per night (up to {p['base_rate_guest_limit']} guests)
-Extra guest   : INR {p['extra_guest_rate_inr']:,} per night per additional person
-Example       : 5 guests x 2 nights = (18,000 + 2,000) x 2 = INR 40,000
+Base rate     : INR {prop.base_rate_inr:,} per night (up to {prop.base_guest_count} guests)
+Extra guest   : INR {prop.extra_guest_rate_inr:,} per night per additional person
+               (applies to guest #{prop.base_guest_count + 1} through #{prop.max_guests})
+Example       : {prop.max_guests} guests × 2 nights
+               = (INR {prop.base_rate_inr:,} + {prop.max_guests - prop.base_guest_count} × INR {prop.extra_guest_rate_inr:,}) × 2
+               = INR {prop.rate_for_guests(prop.max_guests, 2):,}
 
 CONNECTIVITY
-WiFi password : {p['wifi_password']}
+WiFi password : {prop.wifi_password}
 
 SERVICES
-Caretaker     : Available {p['caretaker_hours']}
-Chef on call  : {'Yes — must pre-book at least 24 hours in advance' if p['chef_on_call'] else 'No'}
+Caretaker     : Available {prop.caretaker_hours} (contact in booking confirmation)
+Chef on call  : {'Yes — must pre-book at least ' + str(prop.chef_notice_hours) + ' hours in advance' if prop.chef_on_call else 'No'}
+
+LOCATION
+Nearest beach : {prop.nearest_beach_km} km
+Airport       : {prop.nearest_airport} — {prop.nearest_airport_km} km
 
 CANCELLATION
-{p['cancellation_policy']}
+{prop.cancellation_policy}
 
 AVAILABILITY
-{p['availability_notes']}
+{prop.availability_notes}
+Note: ONLY confirm dates listed as "Available" above. For all other dates say:
+      "Let me check our calendar and confirm shortly."
 
-POLICIES
-Pets          : {'Allowed' if p['pets_allowed'] else 'Not permitted'}
-Smoking       : {p['smoking_policy']}
-Parking       : {p['parking']}
-Extra bed     : {p['extra_bed']}
-Infant cot    : {p['infant_cot']}
+AMENITIES
+{amenities_text}
+
+NEARBY ATTRACTIONS
+{attractions_text}
+
+HOUSE RULES
+{house_rules_text}
+========================================================================================
+CRITICAL RULES FOR THIS RESPONSE:
+  1. Do NOT invent caretaker's name — it is not provided here.
+  2. Do NOT invent cancellation tiers beyond what is written above.
+  3. Do NOT confirm availability for dates not listed above.
+  4. Do NOT quote specific refund amounts — say the manager will confirm.
+  5. Parking details not listed above — say "I'll confirm shortly."
 """.strip()
+
+
+def _format_time(t: str) -> str:
+    """Convert '14:00' → '2:00 PM', pass through if already formatted."""
+    if ":" not in t or t[0].isalpha():
+        return t
+    try:
+        h, m = map(int, t.split(":"))
+        suffix = "AM" if h < 12 else "PM"
+        h12    = h % 12 or 12
+        return f"{h12}:{m:02d} {suffix}"
+    except ValueError:
+        return t

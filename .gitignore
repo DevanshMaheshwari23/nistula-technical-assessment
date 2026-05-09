@@ -1,10 +1,53 @@
+# ─── Environment & Secrets ───────────────────────────
 .env
+.env.local
+.env.*.local
+
+# ─── Python ──────────────────────────────────────────
 venv/
 __pycache__/
 *.pyc
 *.pyo
-.pytest_cache/
-.DS_Store
+*.pyd
 *.egg-info/
 dist/
+build/
+*.egg
+.eggs/
+
+# ─── Testing & Coverage ──────────────────────────────
+.pytest_cache/
 .coverage
+.coverage.*
+htmlcov/
+coverage.xml
+test_results.log
+
+# ─── macOS ───────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ─── IDE ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# ─── Logs ────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Compiled / Cache ────────────────────────────────
+*.pyc
+*.pyo
+__pycache__/
+.mypy_cache/
+.ruff_cache/
+
+# ─── Distribution ────────────────────────────────────
+dist/
+build/
+*.whl
