@@ -467,15 +467,45 @@ bash test_production.sh
 
 ---
 
-## Known Limitations & Next Steps
+## Known Limitations & v2 Roadmap
 
-1. **`ai_service.py` unit coverage is 37%** — tested end-to-end via production smoke suite against the live API, but unit-level error path injection (rate limits, connection drops) uses mocks at the boundary. Full coverage would use `respx` or `pytest-httpx`.
+### Current Limitations — Known and Intentional
 
-2. **Special requests always go to `agent_review`** — intentional for safety. A structured special-request handler would move a known subset to `auto_send`.
+- **`ai_service.py` unit coverage is 37%** — tested end-to-end via production smoke suite, but unit-level error path injection uses mocks at the boundary. Full coverage would use `respx` or `pytest-httpx`.
+- **Special requests always go to `agent_review`** — intentional for safety. Known subtypes (airport transfer, chef booking, early check-in) could move to `auto_send` with a structured handler.
+- **Cancellation policy goes to `agent_review`** — policy is static and fully known. Adding it to the auto-send knowledge base would cut agent queue with zero risk.
+- **Single property in registry** — `villa-b1` only. Multi-property support requires a database-backed registry (schema already in `schema.sql`).
 
-3. **Cancellation policy queries go to `agent_review`** — the policy is static and fully known. Adding it to the auto-send knowledge base would cut agent queue with zero risk.
+### Deliberately Scoped Out
 
-4. **Single property in registry** — `villa-b1` is the only seeded property. Extending to multi-property requires a database-backed registry (schema already provided in `schema.sql`).
+- No database persistence — messages are stateless, no conversation history stored
+- No conversation memory — each message treated in isolation, no guest sentiment tracking
+- No async queue — synchronous processing bottlenecks under load
+- No human-in-the-loop dashboard — `agent_review` messages flagged but no UI to approve/send
+- No webhook signature validation, rate limiting, or replay protection
+- No PII redaction in logs
+
+### Design Weaknesses
+
+- **Single intent per message** — classifier picks one winner. Real messages contain mixed intents (`complaint + logistics + special request`) requiring split routing.
+- **Confidence ≠ correctness** — high score means safe to send, not factually accurate. Production needs retrieval verification on top of heuristic scoring.
+- **Single-shot AI** — Claude drafts replies. It does not act. Production needs tool use: create tickets, look up reservations, dispatch alerts.
+- **No metrics** — no measurement of auto-send rate, complaint recurrence, SLA breaches, or agent corrections.
+
+### v2 Priorities
+
+| # | What | Why |
+|---|---|---|
+| 1 | Conversation state engine | Prior complaints change routing regardless of confidence |
+| 2 | Persistence layer | Enables multi-property registry and complaint pattern detection |
+| 3 | Expand auto-send coverage | Cancellation policy + known special requests — zero safety tradeoff |
+| 4 | Async queue | Webhook acknowledges instantly, retries automatically |
+| 5 | Human-in-the-loop dashboard | What property managers actually use |
+| 6 | Retrieval-based property context | Dynamic facts instead of static prompt injection |
+| 7 | Webhook security hardening | HMAC, rate limiting, idempotency, PII redaction |
+| 8 | Metrics dashboard | Complaint rate by property, SLA breach rate, auto-send distribution |
+
+> The core judgement is already there. The plumbing is next.
 
 ---
 
@@ -491,3 +521,4 @@ See [`design_decisions.md`](./design_decisions.md) for the full ADR log.
 | Classifier approach | Weighted regex, not ML | 6-class problem with well-defined vocabulary — faster, fully debuggable, needs no training data |
 | Prompt structure | Base + type overlay | Single base enforces tone/safety globally; per-type overlays customise without duplication |
 | Rate examples in prompt | Pre-calculated in Python | Prevents Claude from re-deriving pricing and introducing rounding errors or hallucinated fees |
+
