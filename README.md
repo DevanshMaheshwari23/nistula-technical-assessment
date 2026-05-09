@@ -508,6 +508,7 @@ bash test_production.sh
 - No human-in-the-loop dashboard — `agent_review` messages flagged but no UI to approve/send
 - No webhook signature validation, rate limiting, or replay protection
 - No PII redaction in logs
+- Several production concerns (distributed queues, persistence, observability, replay protection, and multi-turn conversation memory) are documented in the roadmap section but intentionally scoped out to prioritize core message-routing correctness.
 
 ### Design Weaknesses
 
@@ -529,7 +530,7 @@ bash test_production.sh
 | 7 | Webhook security hardening | HMAC, rate limiting, idempotency, PII redaction |
 | 8 | Metrics dashboard | Complaint rate by property, SLA breach rate, auto-send distribution |
 
-> The core judgement is already there. The plumbing is next.
+>The current implementation prioritizes deterministic routing and operational correctness. Future iterations would focus on persistence, orchestration, observability, and tooling integration.
 
 ---
 
