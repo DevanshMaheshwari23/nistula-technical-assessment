@@ -76,8 +76,8 @@ PROPERTIES_DB: dict[str, PropertyContext] = {
             "50% charge within 7 days. Full charge within 48 hours."
         ),
         house_rules=[
-            "No smoking inside the villa",
-            "Pets not allowed",
+            "Can have smoking inside the villa",
+            "Pets are allowed",
             "No loud music after 10pm (Goa noise ordinance)",
             "Primary guest must be 18+, valid ID required at check-in",
             "Passport, Aadhaar, or Driving Licence accepted",
