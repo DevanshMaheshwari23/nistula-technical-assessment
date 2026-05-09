@@ -21,95 +21,59 @@ _CH_SCORES = {
 }
 BOOKING_REF_BONUS = 0.08
 
-# Context keywords — property-relevant terms that indicate an answerable query
 _CTX_KW = [re.compile(p, re.I) for p in [
-    r"\bavailab\w*",
-    r"\brate[s]?",
-    r"\bpric\w*",
-    r"\bcost",
-    r"\bcheck.?in",
-    r"\bcheck.?out",
-    r"\bwifi",
-    r"\bpassword",
-    r"\bguest[s]?",
-    r"\badult[s]?",
-    r"\bnight[s]?",
-    r"\bcancell?\w*",
-    r"\bchef",
-    r"\btransfer",
-    r"\bairport",
-    r"\bpool",
-    r"\bcaretaker",
+    r"\bavailab\w*", r"\brate[s]?", r"\bpric\w*", r"\bcost",
+    r"\bcheck.?in", r"\bcheck.?out", r"\bwifi", r"\bpassword",
+    r"\bguest[s]?", r"\badult[s]?", r"\bnight[s]?", r"\bcancell?\w*",
+    r"\bchef", r"\btransfer", r"\bairport", r"\bpool", r"\bcaretaker",
     r"\b\d{1,2}\s*(apr|may|jun|jul|aug|sep|oct|nov|dec|jan|feb|mar)\b",
     r"\bfor\s+\d+\s*(adult|guest|person|people)\b",
 ]]
 
-# Emotional charge words — lower clarity, signal escalation risk
 _CHARGE = [re.compile(p, re.I) for p in [
-    r"\bunacceptable",
-    r"\bterrible",
-    r"\bhorrible",
-    r"\bfurious",
-    r"\bangry",
-    r"\bdemand",
-    r"\burgent",
-    r"\basap",
+    r"\bunacceptable", r"\bterrible", r"\bhorrible", r"\bfurious",
+    r"\bangry", r"\bdemand", r"\burgent", r"\basap",
 ]]
 
-# Keywords we can answer directly from static property context (zero ambiguity)
 _DIRECT_ANSWER_KW = [re.compile(p, re.I) for p in [
-    r"\bwifi\b",
-    r"\bpassword\b",
-    r"\bcheck.?in\b",
-    r"\bcheck.?out\b",
-    r"\bpool\b",
-    r"\bcaretaker\b",
-    r"\bchef\b",
+    r"\bwifi\b", r"\bpassword\b", r"\bcheck.?in\b", r"\bcheck.?out\b",
+    r"\bpool\b", r"\bcaretaker\b", r"\bchef\b",
 ]]
 
 
-def _build_breakdown(msg: UnifiedMessage) -> ConfidenceBreakdown:
-    """Compute all four signals and return the full breakdown. Internal use only."""
+def _compute_confidence_internal(
+    query_type: QueryType,
+    source: SourceChannel,
+    message: str,
+    booking_ref: str | None,
+) -> ConfidenceBreakdown:
+    qt  = _QT_SCORES[query_type]
+    ctx = min(1.0, sum(1 for p in _CTX_KW if p.search(message)) / 3.0)
 
-    # Signal 1 — Query type answerability (35%)
-    qt = _QT_SCORES[msg.query_type]
-
-    # Signal 2 — Context keyword coverage (30%)
-    # Normalised over 3: hitting 3+ relevant keywords scores 1.0
-    ctx = min(1.0, sum(1 for p in _CTX_KW if p.search(msg.message_text)) / 3.0)
-
-    # Signal 3 — Message clarity (20%)
-    words = msg.message_text.split()
+    words = message.split()
     wc    = len(words)
     clr   = 0.50
     if 8 <= wc <= 120:
-        clr += 0.20    # well-formed message length
+        clr += 0.20
     elif wc < 8:
-        clr -= 0.15    # too short, likely incomplete context
-    if "?" in msg.message_text and wc >= 3: 
-        clr += 0.15    # explicit question
-    if re.search(r"\b\d\b", msg.message_text):
-        clr += 0.10    # contains a number (dates, guest counts)
-    clr -= sum(1 for p in _CHARGE if p.search(msg.message_text)) * 0.08
-    clr   = max(0.0, min(1.0, clr))
+        clr -= 0.15
+    if "?" in message and wc >= 3:
+        clr += 0.15
+    if re.search(r"\b\d\b", message):
+        clr += 0.10
+    clr -= sum(1 for p in _CHARGE if p.search(message)) * 0.08
+    clr  = max(0.0, min(1.0, clr))
 
-    # Signal 4 — Channel reliability (15%)
-    ch = min(1.0, _CH_SCORES[msg.source] + (BOOKING_REF_BONUS if msg.booking_ref else 0.0))
+    ch = min(1.0, _CH_SCORES[source] + (BOOKING_REF_BONUS if booking_ref else 0.0))
+    w  = qt * 0.35 + ctx * 0.30 + clr * 0.20 + ch * 0.15
 
-    # Weighted sum
-    w = qt * 0.35 + ctx * 0.30 + clr * 0.20 + ch * 0.15
-
-    # Direct-answer floor: POST_SALES_CHECKIN messages containing a property fact
-    # we can answer exactly (WiFi password, check-in time, pool) get a minimum
-    # score of 0.88 — these are zero-ambiguity lookups, confidence should reflect that.
     if (
-        msg.query_type == QueryType.POST_SALES_CHECKIN
-        and any(p.search(msg.message_text) for p in _DIRECT_ANSWER_KW)
+        query_type == QueryType.POST_SALES_CHECKIN
+        and any(p.search(message) for p in _DIRECT_ANSWER_KW)
     ):
         w = max(w, 0.88)
 
-    # Complaint cap — always escalate regardless of computed score
-    capped = msg.query_type == QueryType.COMPLAINT
+    capped = query_type == QueryType.COMPLAINT
     if capped:
         w = min(w, 0.50)
 
@@ -123,11 +87,25 @@ def _build_breakdown(msg: UnifiedMessage) -> ConfidenceBreakdown:
     )
 
 
-def compute_confidence(msg: UnifiedMessage) -> float:
-    """Return the final confidence score as a plain float. Used by tests and action router."""
-    return _build_breakdown(msg).final_score
+def _build_breakdown(msg: UnifiedMessage) -> ConfidenceBreakdown:
+    return _compute_confidence_internal(
+        msg.query_type, msg.source, msg.message_text, msg.booking_ref
+    )
+
+
+def compute_confidence(
+    query_type_or_msg,
+    source: SourceChannel | None = None,
+    message: str | None = None,
+    booking_ref: str | None = None,
+) -> ConfidenceBreakdown:
+    if source is None:
+        msg = query_type_or_msg
+        return _compute_confidence_internal(
+            msg.query_type, msg.source, msg.message_text, msg.booking_ref
+        )
+    return _compute_confidence_internal(query_type_or_msg, source, message, booking_ref)
 
 
 def compute_confidence_breakdown(msg: UnifiedMessage) -> ConfidenceBreakdown:
-    """Return the full breakdown object. Used by ai_service to attach to AIResponse."""
     return _build_breakdown(msg)

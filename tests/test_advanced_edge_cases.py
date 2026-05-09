@@ -6,8 +6,9 @@ Extends the base 58 unit tests and 28 production assertions.
 Run: pytest tests/test_advanced_edge_cases.py -v
 """
 from __future__ import annotations
-
+import uuid
 import pytest
+from src.models.schemas import UnifiedMessage
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch, MagicMock
 from src.main import app
@@ -135,72 +136,62 @@ class TestClassifierRobustness:
 
 class TestConfidenceScoring:
 
-    def _make_msg(
-        self,
-        text: str,
-        query_type: QueryType,
-        source: str = "direct",
-        booking_ref: str | None = "NIS-2024-0001",
-    ) -> object:
-        payload = InboundMessagePayload(
-            source=source,
-            guest_name="Test Guest",
-            message=text,
+    def _msg(self, **kw):
+        defaults = dict(
+            message_id=uuid.uuid4(),
+            source=SourceChannel.WHATSAPP,
+            guest_name="Test",
+            message_text="Is the villa available?",
             timestamp="2026-05-05T10:30:00Z",
-            booking_ref=booking_ref,
+            booking_ref="NIS-001",
             property_id="villa-b1",
+            query_type=QueryType.PRE_SALES_AVAILABILITY,
+            raw_payload={},
         )
-        msg = normalise(payload)
-        msg.query_type = query_type  # override classifier with explicit type for isolated scoring test
-        return msg
+        defaults.update(kw)
+        return UnifiedMessage(**defaults)
 
     def test_complaint_score_always_below_auto_send_threshold(self):
-        """Complaints must NEVER reach 0.85 regardless of message clarity."""
-        msg = self._make_msg("The pool is dirty", QueryType.COMPLAINT)
-        score = compute_confidence(msg)
-        assert score < 0.85, f"Complaint scored {score} — must be < 0.85"
+        score = compute_confidence(self._msg(
+            query_type=QueryType.COMPLAINT,
+            message_text="AC not working, this is unacceptable!"
+        ))
+        assert score.final_score < 0.85, f"Complaint scored {score.final_score} — must be < 0.85"
 
     def test_post_sales_checkin_scores_high_with_booking_ref(self):
-        """Direct channel + booking ref + clear WiFi question = high confidence."""
-        msg = self._make_msg(
-            "What is the WiFi password?",
-            QueryType.POST_SALES_CHECKIN,
-            source="direct",
-            booking_ref="NIS-2024-0001",
-        )
-        score = compute_confidence(msg)
-        assert score >= 0.85, f"Should be auto_send but scored {score}"
+        score = compute_confidence(self._msg(
+            query_type=QueryType.POST_SALES_CHECKIN,
+            message_text="What is the WiFi password?",
+            booking_ref="NIS-001"
+        ))
+        assert score.final_score >= 0.85, f"Should be auto_send but scored {score.final_score}"
 
     def test_instagram_no_booking_ref_scores_below_auto_send(self):
-        """Instagram + no booking ref = lower channel reliability score."""
-        msg = self._make_msg(
-            "Is villa B1 available May 20-25?",
-            QueryType.PRE_SALES_AVAILABILITY,
-            source="instagram",
-            booking_ref=None,
-        )
-        score = compute_confidence(msg)
-        assert score < 0.85, f"Instagram/no-ref should be agent_review, scored {score}"
+        score = compute_confidence(self._msg(
+            source=SourceChannel.INSTAGRAM,
+            booking_ref=None
+        ))
+        assert score.final_score < 0.85, f"Instagram/no-ref should be agent_review, scored {score.final_score}"
 
     def test_confidence_score_within_valid_range(self):
-        """Score must always be 0.0–1.0 for every possible QueryType."""
         for qt in QueryType:
-            msg = self._make_msg("Test message for scoring", qt)
-            score = compute_confidence(msg)
-            assert 0.0 <= score <= 1.0, f"{qt}: score {score} out of valid range"
+            score = compute_confidence(self._msg(query_type=qt))
+            assert 0.0 <= score.final_score <= 1.0, f"{qt}: score {score.final_score} out of valid range"
 
     def test_general_enquiry_clear_scores_higher_than_vague(self):
-        """A clear specific question must score higher than a single character."""
-        msg_vague = self._make_msg("?", QueryType.GENERAL_ENQUIRY)
-        msg_clear = self._make_msg(
-            "Do you allow pets at the villa?", QueryType.GENERAL_ENQUIRY
+        msg_clear = self._msg(
+            query_type=QueryType.GENERAL_ENQUIRY,
+            message_text="Do you allow pets at the villa? We have a small dog."
         )
-        score_vague = compute_confidence(msg_vague)
+        msg_vague = self._msg(
+            query_type=QueryType.GENERAL_ENQUIRY,
+            message_text="hi"
+        )
         score_clear = compute_confidence(msg_clear)
-        assert score_clear > score_vague, (
-            f"Clear message ({score_clear}) should outscore vague ({score_vague})"
+        score_vague = compute_confidence(msg_vague)
+        assert score_clear.final_score > score_vague.final_score, (
+            f"Clear ({score_clear.final_score}) should beat vague ({score_vague.final_score})"
         )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 3 — ACTION ROUTING HARD RULES

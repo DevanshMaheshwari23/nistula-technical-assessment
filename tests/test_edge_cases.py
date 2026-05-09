@@ -144,7 +144,7 @@ class TestConfidenceEdgeCases:
 
     def _msg(self, **kw):
         defaults = dict(
-            message_id=uuid.uuid4(),          # ✅ uuid imported at top now
+            message_id=uuid.uuid4(),
             source=SourceChannel.WHATSAPP,
             guest_name="Test",
             message_text="Is the villa available?",
@@ -161,24 +161,24 @@ class TestConfidenceEdgeCases:
         for qt in QueryType:
             for ch in SourceChannel:
                 s = compute_confidence(self._msg(query_type=qt, source=ch))
-                assert 0.0 <= s <= 1.0, f"Out of bounds: {qt}/{ch} = {s}"
+                assert 0.0 <= s.final_score <= 1.0, f"Out of bounds: {qt}/{ch} = {s.final_score}"
 
     def test_complaint_always_below_escalate_threshold(self):
         s = compute_confidence(self._msg(
             query_type=QueryType.COMPLAINT,
             message_text="AC not working, unacceptable!"
         ))
-        assert s < 0.60
+        assert s.final_score < 0.60
 
     def test_no_booking_ref_lowers_score(self):
-        with_ref = compute_confidence(self._msg(booking_ref="NIS-001"))
+        with_ref    = compute_confidence(self._msg(booking_ref="NIS-001"))
         without_ref = compute_confidence(self._msg(booking_ref=None))
-        assert with_ref >= without_ref
+        assert with_ref.final_score >= without_ref.final_score
 
     def test_instagram_lower_than_direct(self):
         direct = compute_confidence(self._msg(source=SourceChannel.DIRECT))
         insta  = compute_confidence(self._msg(source=SourceChannel.INSTAGRAM, booking_ref=None))
-        assert direct > insta
+        assert direct.final_score > insta.final_score
 
     def test_wifi_password_post_sales_high_confidence(self):
         s = compute_confidence(self._msg(
@@ -186,20 +186,15 @@ class TestConfidenceEdgeCases:
             message_text="What is the WiFi password?",
             booking_ref="NIS-001"
         ))
-        assert s >= 0.85
+        assert s.final_score >= 0.85
 
     def test_boundary_auto_send_at_exactly_0_85(self):
-        """Score of exactly 0.85 must produce auto_send action."""
-        # ✅ FIX 2: use public name determine_action (imported at top)
         action = determine_action(0.85, QueryType.PRE_SALES_AVAILABILITY)
         assert action == ActionType.AUTO_SEND
 
     def test_boundary_agent_review_at_exactly_0_60(self):
-        """Score of exactly 0.60 must produce agent_review action."""
-        # ✅ FIX 2: use public name determine_action (imported at top)
         action = determine_action(0.60, QueryType.PRE_SALES_AVAILABILITY)
         assert action == ActionType.AGENT_REVIEW
-
 
 # ═══════════════════════════════════════════════════════════════
 # SECTION 3 — NORMALISER EDGE CASES (11 tests)

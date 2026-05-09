@@ -161,9 +161,23 @@ WEBHOOK_SECRET=your-secret-here        # Optional — for webhook signature vali
 uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- API base: `http://localhost:8000`
-- Health check: `GET http://localhost:8000/health` → `{"status": "ok"}`
-- Webhook endpoint: `POST http://localhost:8000/webhook/message`
+The API will be available at:
+- Swagger UI: http://localhost:8000/docs
+- Health check: http://localhost:8000/health
+- Webhook: POST http://localhost:8000/webhook/message
+
+### Running Tests
+
+```bash
+# All tests
+pytest tests/ -v
+
+# With coverage report
+pytest tests/ -v --cov=src --cov-report=term-missing
+
+# Edge cases only
+pytest tests/test_edge_cases.py tests/test_advanced_edge_cases.py -v
+```
 
 ---
 
