@@ -53,7 +53,7 @@ data into actionable property maintenance intelligence — the system learns tha
 Villa B1's hot water geysers need inspection every 6 weeks, without a human having
 to notice the pattern manually.
 
---  ─── FUTURE EXTENSIONS ───────────
+--  ─── FUTURE EXTENSIONS ──────────────────
 -- The following tables are planned for v2 but intentionally excluded from v1
 -- to keep the schema reviewable and focused on core requirements:
 --
