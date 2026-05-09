@@ -59,7 +59,7 @@ def _compute_confidence_internal(
         clr -= 0.15
     if "?" in message and wc >= 3:
         clr += 0.15
-    if re.search(r"\b\d\b", message):
+    if re.search(r"\b\d+\b", message):
         clr += 0.10
     clr -= sum(1 for p in _CHARGE if p.search(message)) * 0.08
     clr  = max(0.0, min(1.0, clr))
